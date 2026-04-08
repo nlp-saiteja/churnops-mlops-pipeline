@@ -1,8 +1,7 @@
 # ChurnOps — End-to-End MLOps Pipeline for Customer Churn Prediction
 
-**Author: Leela Phanidhar Sai Teja Nalanagula**
+By Leela Phanidhar Sai Teja Nalanagula 
 
-[![CI — Test & Build](https://github.com/saitejanlp/churnops-mlops-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/saitejanlp/churnops-mlops-pipeline/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![XGBoost](https://img.shields.io/badge/Model-XGBoost-orange)
 ![MLflow](https://img.shields.io/badge/Tracking-MLflow-blue)
@@ -448,4 +447,3 @@ Predicts churn probability for a customer.
 
 ---
 
-*Built by **Leela Phanidhar Sai Teja Nalanagula** — all tools used are free and open-source, running entirely on local infrastructure with no cloud costs.*
