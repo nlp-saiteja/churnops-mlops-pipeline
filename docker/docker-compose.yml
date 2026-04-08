@@ -1,0 +1,43 @@
+services:
+
+  # MLflow tracking server — stores experiments, runs, and registered models
+  mlflow:
+    image: python:3.12-slim
+    working_dir: /app
+    command: >
+      bash -c "pip install --quiet mlflow==2.16.2 setuptools &&
+               mlflow server --host 0.0.0.0 --port 5001
+               --backend-store-uri /app/mlruns
+               --default-artifact-root /app/mlartifacts"
+    ports:
+      - "5001:5001"
+    volumes:
+      # Mount local mlruns/ so the container sees your already-trained model
+      - ../mlruns:/app/mlruns
+      - ../mlartifacts:/app/mlartifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # FastAPI prediction API
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Override tracking URI — inside Docker, use service name not localhost
+      - MLFLOW_TRACKING_URI=http://mlflow:5001
+    volumes:
+      # Mount local data and models so the container can access them
+      - ../data:/app/data
+      - ../models:/app/models
+      - ../mlruns:/app/mlruns
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: on-failure

@@ -1,0 +1,40 @@
+project:
+  name: churnops-mlops-pipeline
+  version: "1.0.0"
+
+data:
+  raw_path: data/raw/telco_churn.csv
+  processed_path: data/processed/
+  target_column: Churn
+  test_size: 0.2
+  random_state: 42
+
+model:
+  name: xgboost_churn
+  params:
+    n_estimators: 200
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    use_label_encoder: false
+    eval_metric: logloss
+    random_state: 42
+  threshold: 0.5
+
+mlflow:
+  tracking_uri: http://localhost:5001
+  experiment_name: churn-prediction
+  model_name: churn-model
+  stage: Production
+
+api:
+  host: 0.0.0.0
+  port: 8000
+
+monitoring:
+  drift_threshold: 0.1
+  performance_threshold:
+    roc_auc: 0.75
+    f1_score: 0.55
+  alert_on_drift: true

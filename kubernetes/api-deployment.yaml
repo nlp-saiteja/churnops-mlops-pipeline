@@ -1,0 +1,84 @@
+# Stable API deployment — receives 90% of traffic via replica count
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: churnops-api-stable
+  namespace: churnops
+  labels:
+    app: churnops-api
+    version: stable
+spec:
+  replicas: 9   # 9 stable pods
+  selector:
+    matchLabels:
+      app: churnops-api
+      version: stable
+  template:
+    metadata:
+      labels:
+        app: churnops-api
+        version: stable
+    spec:
+      containers:
+        - name: api
+          image: churnops-api:latest
+          imagePullPolicy: Never     # use local image loaded into minikube
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5001
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: models
+              mountPath: /app/models
+            - name: mlruns
+              mountPath: /app/mlruns
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: data
+          hostPath:
+            path: /data
+            type: DirectoryOrCreate
+        - name: models
+          hostPath:
+            path: /models
+            type: DirectoryOrCreate
+        - name: mlruns
+          hostPath:
+            path: /mlruns
+            type: DirectoryOrCreate
+---
+# Single Service that routes to BOTH stable and canary pods
+# Traffic split is controlled by replica count (9 stable : 1 canary = 90/10)
+apiVersion: v1
+kind: Service
+metadata:
+  name: churnops-api
+  namespace: churnops
+spec:
+  selector:
+    app: churnops-api     # matches BOTH stable and canary pods
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: NodePort

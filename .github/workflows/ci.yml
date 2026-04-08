@@ -1,0 +1,119 @@
+name: CI — Test & Build
+
+# Runs on every push to main and on every pull request
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─────────────────────────────────────────
+  # Job 1: Run all tests
+  # ─────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools
+          pip install -r requirements.txt
+
+      - name: Run preprocessing tests
+        run: PYTHONPATH=. pytest tests/test_preprocessing.py -v
+
+      - name: Run API tests
+        run: PYTHONPATH=. pytest tests/test_api.py -v
+
+      - name: Run all tests with coverage summary
+        run: PYTHONPATH=. pytest tests/ -v --tb=short
+
+  # ─────────────────────────────────────────
+  # Job 2: Retrain model (only on push to main)
+  # ─────────────────────────────────────────
+  retrain:
+    name: Retrain Model
+    runs-on: ubuntu-latest
+    needs: test          # only runs if tests pass
+
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools
+          pip install -r requirements.txt
+
+      - name: Download dataset from Kaggle
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          mkdir -p data/raw
+          kaggle datasets download -d blastchar/telco-customer-churn -p data/raw --unzip
+          mv "data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv" data/raw/telco_churn.csv
+
+      - name: Preprocess data
+        run: PYTHONPATH=. python src/data/preprocess.py
+
+      - name: Train model (MLflow in local file mode)
+        env:
+          MLFLOW_TRACKING_URI: ./mlruns
+        run: |
+          # Override tracking URI to local folder — no server needed in CI
+          sed -i 's|http://localhost:5001|./mlruns|g' configs/config.yaml
+          PYTHONPATH=. python src/models/train.py
+
+      - name: Run drift detection
+        run: PYTHONPATH=. python src/monitoring/drift_detector.py
+
+      - name: Upload drift report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: reports/
+
+  # ─────────────────────────────────────────
+  # Job 3: Build Docker image
+  # ─────────────────────────────────────────
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f docker/Dockerfile -t churnops-api:${{ github.sha }} .
+
+      - name: Verify image starts correctly
+        run: |
+          docker run -d --name test-api \
+            -e MLFLOW_TRACKING_URI=./mlruns \
+            -p 8000:8000 \
+            churnops-api:${{ github.sha }}
+          sleep 10
+          docker logs test-api
+          docker stop test-api

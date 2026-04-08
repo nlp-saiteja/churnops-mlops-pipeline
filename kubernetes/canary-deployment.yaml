@@ -1,0 +1,66 @@
+# Canary deployment — receives 10% of traffic (1 pod vs 9 stable pods)
+# Deploy this when you want to test a new model version safely
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: churnops-api-canary
+  namespace: churnops
+  labels:
+    app: churnops-api
+    version: canary
+spec:
+  replicas: 1   # 1 canary pod out of 10 total = 10% traffic
+  selector:
+    matchLabels:
+      app: churnops-api
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: churnops-api
+        version: canary
+    spec:
+      containers:
+        - name: api
+          image: churnops-api:canary   # new model version image
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5001
+            - name: MODEL_VERSION
+              value: "canary"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: models
+              mountPath: /app/models
+            - name: mlruns
+              mountPath: /app/mlruns
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: data
+          hostPath:
+            path: /data
+            type: DirectoryOrCreate
+        - name: models
+          hostPath:
+            path: /models
+            type: DirectoryOrCreate
+        - name: mlruns
+          hostPath:
+            path: /mlruns
+            type: DirectoryOrCreate

@@ -1,0 +1,73 @@
+name: Scheduled Retraining
+
+# Runs every Sunday at midnight, or manually from GitHub UI
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:       # allows manual trigger from GitHub Actions tab
+    inputs:
+      reason:
+        description: "Why are you retraining?"
+        required: false
+        default: "Manual trigger"
+
+jobs:
+  retrain:
+    name: Retrain & Validate Model
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools
+          pip install -r requirements.txt
+
+      - name: Download latest dataset from Kaggle
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          mkdir -p data/raw
+          kaggle datasets download -d blastchar/telco-customer-churn -p data/raw --unzip
+          mv "data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv" data/raw/telco_churn.csv
+
+      - name: Preprocess data
+        run: PYTHONPATH=. python src/data/preprocess.py
+
+      - name: Train model
+        run: |
+          sed -i 's|http://localhost:5001|./mlruns|g' configs/config.yaml
+          PYTHONPATH=. python src/models/train.py
+
+      - name: Validate model performance
+        run: |
+          python -c "
+          import json, sys
+          with open('models/metrics.json') as f:
+              m = json.load(f)
+          print(f'ROC-AUC: {m[\"roc_auc\"]}  F1: {m[\"f1_score\"]}')
+          if m['roc_auc'] < 0.75:
+              print('FAIL: ROC-AUC below threshold')
+              sys.exit(1)
+          print('PASS: Model meets performance threshold')
+          "
+
+      - name: Run drift detection
+        run: PYTHONPATH=. python src/monitoring/drift_detector.py
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrain-reports-${{ github.run_number }}
+          path: |
+            reports/
+            models/metrics.json
